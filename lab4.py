@@ -1,73 +1,115 @@
-# lab4_commit1.py
+# lab4_commit2.py
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
 from PIL import Image
 import argparse
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--annotation', type=str, default='fish_annotation.csv')
-    parser.add_argument('--output', type=str, default='result')
-    args = parser.parse_args()
-
-    # Загрузка данных из CSV файла
+def load_csv_with_error_handling(file_path):
+    """Загрузка CSV файла с обработкой ошибок форматирования"""
     try:
-        df = pd.read_csv(args.annotation, header=None, names=['abs_path', 'rel_path'])
-    except Exception as e:
-        print(f"Ошибка чтения CSV: {e}")
-        return
+        return pd.read_csv(file_path, header=None, names=['abs_path', 'rel_path'])
+    except:
+        data = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                parts = line.strip().split(',')
+                if len(parts) >= 2:
+                    data.append([parts[0], parts[-1]])
+                else:
+                    print(f"Пропущена строка {line_num}: недостаточно полей")
+        return pd.DataFrame(data, columns=['abs_path', 'rel_path'])
 
-    print(f"Загружено {len(df)} записей из {args.annotation}")
-
-    # Вычисление площади для каждого изображения
+def calculate_image_areas(df):
+    """Вычисление площади для всех изображений в DataFrame"""
     areas = []
     for i, path in enumerate(df['abs_path']):
+        if i % 20 == 0:
+            print(f"Обработка изображения {i+1}/{len(df)}...")
+        
         try:
+            # Проверяем оба пути: абсолютный и относительный
+            img_path = None
             if os.path.exists(path):
-                with Image.open(path) as img:
-                    width, height = img.size
-                    area = width * height
+                img_path = path
+            elif 'rel_path' in df.columns and os.path.exists(df.iloc[i]['rel_path']):
+                img_path = df.iloc[i]['rel_path']
+            
+            if img_path:
+                with Image.open(img_path) as img:
+                    area = img.width * img.height
                     areas.append(area)
             else:
                 areas.append(None)
+                
         except Exception as e:
             areas.append(None)
     
-    df['area'] = areas
+    return areas
+
+def main():
+    parser = argparse.ArgumentParser(description='Анализ площади изображений')
+    parser.add_argument('--annotation', type=str, required=True, help='Файл аннотации CSV')
+    parser.add_argument('--output', type=str, default='result', help='Префикс выходных файлов')
+    parser.add_argument('--min_area', type=float, help='Минимальная площадь для фильтрации')
+    parser.add_argument('--max_area', type=float, help='Максимальная площадь для фильтрации')
+    args = parser.parse_args()
+
+    # 1. Загрузка данных
+    print("="*50)
+    print("Загрузка данных...")
+    df = load_csv_with_error_handling(args.annotation)
+    print(f"Загружено {len(df)} записей")
+
+    # 2. Вычисление площади
+    print("\nВычисление площади изображений...")
+    df['area'] = calculate_image_areas(df)
     
-    # Удаление строк без вычисленной площади
+    # 3. Фильтрация (если указаны параметры)
     df_clean = df.dropna(subset=['area']).copy()
-    print(f"Успешно обработано {len(df_clean)} изображений")
+    
+    if args.min_area is not None:
+        df_clean = df_clean[df_clean['area'] >= args.min_area]
+    
+    if args.max_area is not None:
+        df_clean = df_clean[df_clean['area'] <= args.max_area]
+    
+    print(f"После фильтрации осталось {len(df_clean)} изображений")
 
-    # Сортировка по площади
+    # 4. Сортировка и сохранение
     df_sorted = df_clean.sort_values('area').reset_index(drop=True)
+    df_sorted.to_csv(f'{args.output}_data.csv', index=False)
 
-    # Сохранение результатов в CSV
-    output_csv = f'{args.output}_data.csv'
-    df_sorted.to_csv(output_csv, index=False)
-    print(f"Данные сохранены в {output_csv}")
-
-    # Построение графика
+    # 5. Построение графика
     plt.figure(figsize=(12, 6))
-    plt.plot(range(1, len(df_sorted)+1), df_sorted['area'], 'b-', linewidth=2)
-    plt.title('Площадь изображений (отсортировано по возрастанию)')
-    plt.xlabel('Номер изображения в отсортированном списке')
+    plt.plot(range(1, len(df_sorted)+1), df_sorted['area'], 'b-', linewidth=2, marker='o', markersize=3)
+    plt.title(f'Площадь изображений (n={len(df_sorted)})')
+    plt.xlabel('Номер изображения')
     plt.ylabel('Площадь (пиксели)')
     plt.grid(True, alpha=0.3)
     
-    # Сохранение графика
-    output_plot = f'{args.output}_plot.png'
+    # Добавляем линию среднего значения
+    mean_area = df_sorted['area'].mean()
+    plt.axhline(y=mean_area, color='r', linestyle='--', label=f'Среднее: {mean_area:,.0f}')
+    plt.legend()
+    
     plt.tight_layout()
-    plt.savefig(output_plot, dpi=150)
+    plt.savefig(f'{args.output}_plot.png', dpi=150)
     plt.close()
-    print(f"График сохранен в {output_plot}")
 
-    # Вывод статистики
-    print("\nСтатистика площади изображений:")
-    print(f"Минимальная: {df_sorted['area'].min():,.0f} пикселей")
-    print(f"Максимальная: {df_sorted['area'].max():,.0f} пикселей")
-    print(f"Средняя: {df_sorted['area'].mean():,.0f} пикселей")
+    # 6. Вывод результатов
+    print("\n" + "="*50)
+    print("РЕЗУЛЬТАТЫ:")
+    print(f"Файл данных: {args.output}_data.csv")
+    print(f"Файл графика: {args.output}_plot.png")
+    
+    if not df_sorted.empty:
+        stats = df_sorted['area'].describe()
+        print(f"\nСтатистика площади:")
+        print(f"  Минимум: {stats['min']:,.0f}")
+        print(f"  Максимум: {stats['max']:,.0f}")
+        print(f"  Среднее: {stats['mean']:,.0f}")
+        print(f"  Медиана: {stats['50%']:,.0f}")
 
 if __name__ == "__main__":
     main()
