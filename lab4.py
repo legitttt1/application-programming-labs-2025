@@ -103,7 +103,8 @@ def main():
     plt.xlabel('Номер изображения')
     plt.ylabel('Площадь (пиксели)')
     plt.grid(True, alpha=0.3)
-
+    
+    
     # Добавляем линию среднего значения
     mean_area = df_sorted['area'].mean()
     plt.axhline(
@@ -117,6 +118,7 @@ def main():
     plt.tight_layout()
     plt.savefig(f'{args.output}_plot.png', dpi=150)
     plt.close()
+
 
     # 6. Вывод результатов
     print("\n" + "=" * 50)
